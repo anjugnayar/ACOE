@@ -581,7 +581,7 @@ function switchProduct(key){
 }
 
 /* ============================= PRODUCT OVERVIEW (all products, company-wise) ============================= */
-let ovSortKey = 'totalCy', ovSortDir = 'desc';
+let ovSortKey = 'cy', ovSortDir = 'desc';
 let ovCompany = 'ALL'; // 'ALL' | 'BPC' | 'IOC' | 'HPC'
 
 // Row shape adapts to the selected company: for ALL, cy/ly/growth reflect the Total
@@ -1201,6 +1201,13 @@ document.getElementById('companySeg').addEventListener('click', e=>{
   document.querySelectorAll('#companySeg button').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active'); companyFilter = btn.dataset.c; render();
 });
+document.getElementById('ovCompanySeg').addEventListener('click', e=>{
+  const btn = e.target.closest('button'); if(!btn) return;
+  document.querySelectorAll('#ovCompanySeg button').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active'); ovCompany = btn.dataset.c;
+  ovSortKey = 'cy'; ovSortDir = 'desc';
+  renderOverview();
+});
 document.getElementById('gridMetricToggle').addEventListener('click', e=>{
   const btn = e.target.closest('button'); if(!btn) return;
   document.querySelectorAll('#gridMetricToggle button').forEach(b=>b.classList.remove('active'));
@@ -1334,13 +1341,17 @@ document.getElementById('fileInput').addEventListener('change', function(e){
             summary.push(`${p.label}: ${diag.statesParsed} states`);
           }
         });
-        const missingProducts = PRODUCTS.filter(p=>!allBlocks[p.key]).map(p=>p.label);
-        if(!STATES_BY_PRODUCT[activeProduct] && anyLoaded){
-          activeProduct = PRODUCTS.find(p=>STATES_BY_PRODUCT[p.key])?.key || activeProduct;
+        const missingProducts = PRODUCTS.filter(p=>p.key!=='OVERVIEW' && !allBlocks[p.key]).map(p=>p.label);
+
+        // Stay on the current tab if it still has data (state-wise tabs, or Overview which
+        // is always valid); otherwise fall back to the first product that has data.
+        // Using switchProduct() (rather than setting STATES directly) guarantees the
+        // state-wise view / map panel is correctly shown or hidden after upload.
+        let targetProduct = activeProduct;
+        if(targetProduct !== 'OVERVIEW' && !STATES_BY_PRODUCT[targetProduct] && anyLoaded){
+          targetProduct = PRODUCTS.find(p=>p.key!=='OVERVIEW' && STATES_BY_PRODUCT[p.key])?.key || targetProduct;
         }
-        renderProductTabs();
-        STATES = STATES_BY_PRODUCT[activeProduct] || [];
-        render();
+        switchProduct(targetProduct);
         document.getElementById('dataBadge').innerHTML = `<span class="dot"></span>Loaded: <b style="color:#EAEFF5">${file.name}</b>`;
 
         if(!anyLoaded){
@@ -1372,21 +1383,20 @@ document.getElementById('fileInput').addEventListener('change', function(e){
       const rows = aoa.slice(1);
       const diag = {};
       const states = parseWorkbookData({header, rows}, diag);
-      STATES_BY_PRODUCT[activeProduct] = states;
-      STATES = states;
+      // A single-table upload only makes sense for a state-wise product tab; if the
+      // Overview tab happens to be active, fall back to the first real product tab.
+      const targetProduct = activeProduct === 'OVERVIEW' ? PRODUCTS.find(p=>p.key!=='OVERVIEW').key : activeProduct;
+      STATES_BY_PRODUCT[targetProduct] = states;
+      switchProduct(targetProduct);
 
       document.getElementById('dataBadge').innerHTML = `<span class="dot"></span>Loaded: <b style="color:#EAEFF5">${file.name}</b>`;
-      regionFilter='ALL'; companyFilter='ALL';
-      document.querySelectorAll('#regionSeg button').forEach(b=>b.classList.toggle('active', b.dataset.r==='ALL'));
-      document.querySelectorAll('#companySeg button').forEach(b=>b.classList.toggle('active', b.dataset.c==='ALL'));
-      render();
 
       if(diag.statesParsed === 0){
         showStatus('error', `<b>Parsed the sheet but found 0 state rows.</b> Rows skipped as region/grand totals: ${diag.subtotalRowsSkipped+diag.totalRowsSkipped}. Double-check the "Region" and "State" columns are filled per row.`);
       } else if(diag.missingCols.length){
-        showStatus('warn', `<b>Loaded ${diag.statesParsed} states across zones ${diag.zones.join(', ')}</b> into the "${PRODUCTS.find(p=>p.key===activeProduct).label}" tab from sheet "${chosenSheetName}", but these expected columns were not found and defaulted to 0: <code>${diag.missingCols.join(', ')}</code>.`);
+        showStatus('warn', `<b>Loaded ${diag.statesParsed} states across zones ${diag.zones.join(', ')}</b> into the "${PRODUCTS.find(p=>p.key===targetProduct).label}" tab from sheet "${chosenSheetName}", but these expected columns were not found and defaulted to 0: <code>${diag.missingCols.join(', ')}</code>.`);
       } else {
-        showStatus('ok', `<b>Loaded ${diag.statesParsed} states across zones ${diag.zones.join(', ')}</b> into the "${PRODUCTS.find(p=>p.key===activeProduct).label}" tab from sheet "${chosenSheetName}" &middot; skipped ${diag.totalRowsSkipped} grand-total row(s) and ${diag.subtotalRowsSkipped} region-subtotal row(s), as expected.`);
+        showStatus('ok', `<b>Loaded ${diag.statesParsed} states across zones ${diag.zones.join(', ')}</b> into the "${PRODUCTS.find(p=>p.key===targetProduct).label}" tab from sheet "${chosenSheetName}" &middot; skipped ${diag.totalRowsSkipped} grand-total row(s) and ${diag.subtotalRowsSkipped} region-subtotal row(s), as expected.`);
       }
     }catch(err){
       showStatus('error', `<b>Could not read this workbook.</b> ${err.message}. Please confirm it's a valid, non-password-protected .xlsx file following the standard column layout.`);
@@ -1401,6 +1411,7 @@ document.getElementById('fileInput').addEventListener('change', function(e){
 
 /* ============================= INIT ============================= */
 PRODUCTS.forEach(p=>{
+  if(p.key === 'OVERVIEW') return; // Overview has its own data shape (PRODUCT_OVERVIEW), not state-wise
   STATES_BY_PRODUCT[p.key] = parseWorkbookData(DEMO_DATA_BY_PRODUCT[p.key]);
 });
 STATES = STATES_BY_PRODUCT[activeProduct] || [];
